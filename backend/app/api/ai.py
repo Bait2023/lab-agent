@@ -1,0 +1,44 @@
+import json
+
+from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+from app.database import get_db
+from app.common.response import Response
+from app.dependencies.auth import get_current_user
+from app.models.user import User
+from app.schemas.ai import ChatMessage, ChatRequest
+from app.services import agent_service, ai_service
+
+router = APIRouter(prefix="/ai", tags=["AI相关"])
+
+
+# @router.post("/chat")
+# def chat(
+#     data: ChatRequest,
+#     current_user: User = Depends(get_current_user),
+#     db: Session = Depends(get_db),
+# ):
+#     content = agent_service.run_agent(db, current_user, data)
+#     return Response.success(data=ChatMessage(role="assistant", content=content))
+
+
+@router.post("/chat/stream")
+async def chat(
+    data: ChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    async def event_get():
+        async for event in agent_service.stream_agent(db, current_user, data):
+            yield f"data:{json.dumps(event,ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_get(),
+        media_type="text/event-stream",  # 告诉浏览器，这是SSE流
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Nginx避免整段吐出去
+        },
+    )
